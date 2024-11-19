@@ -1,0 +1,45 @@
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Compiled Dynamic libraries
+*.dll
+*.so
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CodeBlocks specific files
+*.layout
+*.depend
+
+# Build directories
+bin/
+obj/
+
+# Backup files
+*~
+*.bak
+*.swp
+
+# User-specific files
+*.user
+*.sdf
+*.opensdf
+
+# Windows thumbnail cache files
+Thumbs.db
+
+# Database files
+*.db
+
+# Debug/Release folders
+Debug/
+Release/
