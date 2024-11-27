@@ -1,4 +1,12 @@
-// #include <commctrl.h>
+#define WIN32_LEAN_AND_MEAN
+#define _WIN32_IE 0x0600
+#define WINVER 0x0500
+#define _WIN32_WINDOWS 0x0500
+
+#include <windows.h>
+#include <commctrl.h>
+#include <shellapi.h>
+#include <mmsystem.h>
 #include <ctime>
 #include <memory>
 #include <sqlite3.h>
@@ -6,7 +14,8 @@
 #include <string>
 #include <tchar.h>
 #include <vector>
-#include <windows.h>
+
+#pragma comment(lib, "winmm.lib")
 
 #define IDC_TEXTAREA 101
 #define IDC_BUTTON 102
@@ -74,7 +83,7 @@ int WINAPI WinMain(HINSTANCE hThisInstance,
     return 0;
 
   hwnd = CreateWindowEx(
-      0,
+      WS_EX_TOPMOST,
       szClassName,
       _T("Activity Tracker"),
       WS_OVERLAPPEDWINDOW,
@@ -113,12 +122,12 @@ void CreateUIElements(HWND hwnd) {
   UpdateWindow(hwnd);
 
   HFONT hFont = CreateFont(
-      16, 0, 0, 0, FW_NORMAL,
+      20, 0, 0, 0, FW_NORMAL,
       FALSE, FALSE, FALSE,
       DEFAULT_CHARSET,
       OUT_DEFAULT_PRECIS,
       CLIP_DEFAULT_PRECIS,
-      DEFAULT_QUALITY,
+      CLEARTYPE_QUALITY,
       DEFAULT_PITCH | FF_SWISS,
       _T("Segoe UI"));
 
@@ -128,7 +137,7 @@ void CreateUIElements(HWND hwnd) {
         WS_EX_CLIENTEDGE,
         _T("EDIT"), _T(""),
         WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL,
-        20, 70, 560, 200,
+        40, 100, 520, 160,
         hwnd, (HMENU)IDC_TEXTAREA, GetModuleHandle(NULL), NULL);
 
     SendMessage(g_textArea, WM_SETFONT, (WPARAM)hFont, TRUE);
@@ -139,8 +148,8 @@ void CreateUIElements(HWND hwnd) {
     g_button = CreateWindowEx(
         0,
         _T("BUTTON"), _T("Save Activity"),
-        WS_TABSTOP | WS_CHILD | BS_DEFPUSHBUTTON,
-        240, 300, 120, 50,
+        WS_TABSTOP | WS_CHILD | BS_FLAT,
+        250, 280, 100, 40,
         hwnd, (HMENU)IDC_BUTTON, GetModuleHandle(NULL), NULL);
     SendMessage(g_button, WM_SETFONT, (WPARAM)hFont, TRUE);
   }
@@ -152,7 +161,7 @@ void CreateUIElements(HWND hwnd) {
         _T("STATIC"),
         _T("What are you working on?"),
         WS_CHILD | SS_CENTERIMAGE,
-        20, 20, 560, 40,
+        40, 40, 520, 40,
         hwnd, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(g_label, WM_SETFONT, (WPARAM)hFont, TRUE);
   }
@@ -175,12 +184,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
   case WM_TIMER:
     if (LOWORD(wParam) == TIMER_ID) {
       CreateUIElements(hwnd);
+      
+      // Play the system notification sound
+      PlaySound(TEXT("SystemExclamation"), NULL, SND_ALIAS | SND_ASYNC);
+
+      // Bring the window to the top and keep it there
+      SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+      SetForegroundWindow(hwnd);
+      SetActiveWindow(hwnd);
+
+      // Show the window if it was minimized or hidden
+      ShowWindow(hwnd, SW_RESTORE);
     }
     break;
 
   case WM_CREATE:
 
-    MessageBox(hwnd, "Application started", "Info", MB_OK);
+    // MessageBox(hwnd, "Application started", "Info", MB_OK);
     break;
 
   case WM_COMMAND:
@@ -218,6 +238,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     }
     break;
 
+  case WM_CLOSE:
+    // Prevent closing the window until an activity is saved
+    MessageBox(hwnd, "Please save an activity before closing.", "Info", MB_OK | MB_ICONINFORMATION);
+    return 0;
+
   case WM_DESTROY:
     KillTimer(hwnd, TIMER_ID);
     PostQuitMessage(0);
@@ -249,43 +274,100 @@ std::vector<std::pair<std::string, std::string>> GetDailySummary() {
 }
 
 void ShowSummaryDialog() {
+    HWND hDlg = CreateWindowEx(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        szClassName,
+        _T("Daily Activity Summary"),
+        WS_VISIBLE | WS_SYSMENU | WS_CAPTION,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        800, 600,
+        NULL, NULL,
+        GetModuleHandle(NULL),
+        NULL
+    );
 
-  //   HWND hListView = CreateWindowEx(
-  //       0, WC_LISTVIEW, NULL,
-  //       WS_CHILD | WS_VISIBLE | LVS_REPORT,
-  //       20, 20, 560, 300,
-  //       g_hwnd, NULL, GetModuleHandle(NULL), NULL);
+    // Create ListView
+    HWND hListView = CreateWindowEx(
+        0, WC_LISTVIEW, NULL,
+        WS_CHILD | WS_VISIBLE | LVS_REPORT | WS_BORDER,
+        20, 20, 740, 520,
+        hDlg, NULL, GetModuleHandle(NULL), NULL
+    );
 
-  //   ListView_SetExtendedListViewStyle(hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+    // Modern styling for ListView
+    ListView_SetExtendedListViewStyle(hListView, 
+        LVS_EX_FULLROWSELECT | 
+        LVS_EX_GRIDLINES | 
+        LVS_EX_DOUBLEBUFFER
+    );
 
-  //   LVCOLUMN lvc;
-  //   lvc.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+    // Set up columns
+    LVCOLUMN lvc = { 0 };
+    lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+    lvc.fmt = LVCFMT_LEFT;
 
-  //   lvc.cx = 200;
-  //   lvc.pszText = (LPSTR) "Timestamp";
-  //   ListView_InsertColumn(hListView, 0, &lvc);
+    // Time column
+    lvc.cx = 200;
+    lvc.pszText = (LPSTR)"Time";
+    ListView_InsertColumn(hListView, 0, &lvc);
 
-  //   lvc.cx = 350;
-  //   lvc.pszText = (LPSTR) "Activity";
-  //   ListView_InsertColumn(hListView, 1, &lvc);
+    // Activity column
+    lvc.cx = 520;
+    lvc.pszText = (LPSTR)"Activity";
+    ListView_InsertColumn(hListView, 1, &lvc);
 
-  //   auto summary = GetDailySummary();
-  //   LVITEM lvi;
-  //   lvi.mask = LVIF_TEXT;
-  //   lvi.iSubItem = 0;
+    // Get and populate data
+    auto summary = GetDailySummary();
+    LVITEM lvi = { 0 };
+    lvi.mask = LVIF_TEXT;
 
-  //   for (size_t i = 0; i < summary.size(); ++i) {
+    // Custom font for ListView
+    HFONT hFont = CreateFont(
+        16, 0, 0, 0, FW_NORMAL,
+        FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_SWISS,
+        _T("Segoe UI")
+    );
+    SendMessage(hListView, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-  //     lvi.iItem = i;
-  //     char timestampBuffer[100];
-  //     strncpy(timestampBuffer, summary[i].first.c_str(), sizeof(timestampBuffer));
-  //     lvi.pszText = timestampBuffer;
-  //     ListView_InsertItem(hListView, &lvi);
+    // Populate the ListView
+    for (size_t i = 0; i < summary.size(); ++i) {
+        lvi.iItem = i;
+        
+        // Format timestamp for better readability
+        std::string formattedTime = summary[i].first.substr(11, 5); // Extract HH:MM
+        lvi.iSubItem = 0;
+        lvi.pszText = (LPSTR)formattedTime.c_str();
+        ListView_InsertItem(hListView, &lvi);
 
-  //     char activityBuffer[1024];
-  //     strncpy(activityBuffer, summary[i].second.c_str(), sizeof(activityBuffer));
-  //     ListView_SetItemText(hListView, i, 1, activityBuffer);
-  //   }
+        // Add activity text
+        lvi.iSubItem = 1;
+        lvi.pszText = (LPSTR)summary[i].second.c_str();
+        ListView_SetItem(hListView, &lvi);
+    }
+
+    // Create "Close" button
+    HWND hButton = CreateWindow(
+        _T("BUTTON"), _T("Close"),
+        WS_CHILD | WS_VISIBLE | BS_FLAT,
+        350, 500, 100, 40,
+        hDlg, (HMENU)IDCANCEL, GetModuleHandle(NULL), NULL
+    );
+    SendMessage(hButton, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+    // Center the dialog on screen
+    RECT rc;
+    GetWindowRect(hDlg, &rc);
+    int xPos = (GetSystemMetrics(SM_CXSCREEN) - (rc.right - rc.left)) / 2;
+    int yPos = (GetSystemMetrics(SM_CYSCREEN) - (rc.bottom - rc.top)) / 2;
+    SetWindowPos(hDlg, NULL, xPos, yPos, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+
+    ShowWindow(hDlg, SW_SHOW);
+    UpdateWindow(hDlg);
 }
 
 void InitializeDB() {
